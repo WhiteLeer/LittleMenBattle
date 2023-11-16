@@ -1,0 +1,73 @@
+#pragma kernel EdgeDetect
+
+Texture2D<float3> nTexture;
+Texture2D<float3> dTexture;
+RWTexture2D<float3> tempTexture;
+
+float3 _color;
+
+int _width;
+int _height;
+
+float _size;
+float _filter;
+float _bright;
+
+float _scaleN;
+float _scaleD;
+
+float Luminance(float3 color)
+{
+    return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+}
+
+[numthreads(8,8,1)]
+void EdgeDetect(uint3 id : SV_DispatchThreadID)
+{
+    float3x3 sobelX =
+    {
+        -1, 0, 1,
+        -2, 0, 2,
+        -1, 0, 1
+    };
+
+    float3x3 sobelY =
+    {
+        -1, -2, -1,
+        0, 0, 0,
+        1, 2, 1
+    };
+
+    float deltaXN = 0, deltaYN = 0;
+    float deltaXD = 0, deltaYD = 0;
+    for (int y = -1; y <= 1; y++)
+    {
+        for (int x = -1; x <= 1; x++)
+        {
+            int2 offset = int2(x, y);
+
+            // 越界进行 1填充
+            int2 tempXY = id.xy + offset * _size;
+            bool judge = (tempXY.x < 0 || tempXY.y < 0 || tempXY.x > _width || tempXY.y > _height);
+
+            float nowValue0 = (judge ? 1 : Luminance(nTexture[tempXY]));
+            deltaXN += nowValue0 * sobelX[x + 1][y + 1];
+            deltaYN += nowValue0 * sobelY[x + 1][y + 1];
+
+            float nowValue1 = (judge ? 1 : Luminance(dTexture[tempXY]));
+            deltaXD += nowValue1 * sobelX[x + 1][y + 1];
+            deltaYD += nowValue1 * sobelY[x + 1][y + 1];
+        }
+    }
+    float edgeValueN = _scaleN * sqrt((deltaXN * deltaXN) + (deltaYN * deltaYN));
+    float edgeValueD = _scaleD * sqrt((deltaXD * deltaXD) + (deltaYD * deltaYD));
+
+    float3 edgeColorN = ((_filter - 0.001) < edgeValueN) ? _bright * _color : 0;
+    float3 edgeColorD = ((_filter - 0.001) < edgeValueD) ? _bright * _color : 0;
+
+    tempTexture[id.xy] += edgeColorN + edgeColorD;
+
+    // tempTexture[id.xy] = edgeColorN;
+    // tempTexture[id.xy] = edgeColorD;
+    // tempTexture[id.xy] = dTexture[id.xy];
+}
